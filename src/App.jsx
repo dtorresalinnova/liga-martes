@@ -134,7 +134,6 @@ function LoginScreen({ onLogin }) {
             <input style={{ ...ST.field, marginBottom: 8, letterSpacing: 4 }} type="password" placeholder="Contraseña" value={pwd} onChange={e => { setPwd(e.target.value); setErr(""); }} onKeyDown={e => e.key === "Enter" && doLogin()} />
             {err && <div style={{ color: "#ef4444", fontSize: 13, marginBottom: 8 }}>⚠ {err}</div>}
             <button style={{ ...ST.btnGreen, width: "100%", padding: 12, fontSize: 14, letterSpacing: 3, marginBottom: 10 }} onClick={doLogin}>INGRESAR →</button>
-            <div style={{ fontSize: 11, color: "#334155", textAlign: "center" }}>Usuario: <code style={{ color: "#22c55e" }}>admin</code> · Clave: <code style={{ color: "#22c55e" }}>gol2025</code></div>
           </div>
         )}
       </div>
