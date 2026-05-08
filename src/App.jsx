@@ -164,6 +164,7 @@ export default function App() {
   const [showNewT, setShowNewT] = useState(false);
   const [modal, setModal] = useState(null);
   const [dashFilter, setDashFilter] = useState("current");
+  const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   useEffect(() => { if (role) loadAll(); }, [role]);
 
@@ -242,7 +243,7 @@ export default function App() {
     const match = {
       torneo_id: torneoActivo.id,
       semana: torneoActivo.semana_actual,
-      fecha: new Date().toISOString().split("T")[0],
+      fecha: matchDate,
       equipo_a: teams.A.map(p => p.jugador_id),
       equipo_b: teams.B.map(p => p.jugador_id),
       resultado: matchResult,
@@ -261,7 +262,7 @@ export default function App() {
       await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
     }
     await supabase.from("torneos").update({ semana_actual: torneoActivo.semana_actual + 1 }).eq("id", activoId);
-    setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); setTab("ranking");
+    setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); setMatchDate(new Date().toISOString().split("T")[0]); setTab("ranking");
     loadAll();
   }
 
@@ -502,6 +503,11 @@ export default function App() {
             {!torneoActivo ? <Empty text="No hay torneo activo. Crea uno en 🏅 Torneos" /> : !teams ? (
               <>
                 <div style={{ ...ST.card, marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, color: "#64748b", letterSpacing: 1, whiteSpace: "nowrap" }}>📅 FECHA</span>
+                    <input type="date" value={matchDate} onChange={e => setMatchDate(e.target.value)}
+                      style={{ ...ST.field, flex: 1, padding: "7px 10px", fontSize: 13 }} />
+                  </div>
                   <strong style={{ color: "#e2e8f0" }}>Selecciona 12 jugadores</strong> que confirmaron esta semana.
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
                     <span style={{ fontWeight: 900, fontSize: 22, color: sel.length === 12 ? "#22c55e" : "#e2e8f0" }}>{sel.length}/12</span>
