@@ -511,10 +511,7 @@ export default function App() {
                   <strong style={{ color: "#e2e8f0" }}>Selecciona 12 jugadores</strong> que confirmaron esta semana.
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
                     <span style={{ fontWeight: 900, fontSize: 22, color: sel.length === 12 ? "#22c55e" : "#e2e8f0" }}>{sel.length}/12</span>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button style={{ ...ST.btnGhost, fontSize: 11, padding: "4px 9px" }} onClick={() => { setSel([]); setMA([]); setMB([]); }}>Limpiar</button>
-                      <button style={{ ...ST.btnGhost, fontSize: 11, padding: "4px 9px", color: manualMode ? "#3b82f6" : "#94a3b8", borderColor: manualMode ? "#3b82f6" : "#334155" }} onClick={() => setManualMode(m => !m)}>{manualMode ? "✓ Manual" : "Manual"}</button>
-                    </div>
+                    <button style={{ ...ST.btnGhost, fontSize: 11, padding: "4px 9px" }} onClick={() => { setSel([]); setMA([]); setMB([]); setManualMode(false); }}>Limpiar</button>
                   </div>
                 </div>
                 <div style={ST.pgrid}>
@@ -530,13 +527,20 @@ export default function App() {
                   })}
                 </div>
                 {!manualMode && sel.length === 12 && (
-                  <button style={{ ...ST.btnGreen, width: "100%", padding: 12, fontSize: 14, letterSpacing: 2 }}
-                    onClick={() => { const pool = statsActivo.filter(p => sel.includes(p.jugador_id)); setTeams(snakeDraft(pool)); setMatchResult(null); }}>
-                    ⚽ Armar Equipos Automáticamente
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button style={{ ...ST.btnGreen, flex: 1, padding: 12, fontSize: 13, letterSpacing: 1, fontWeight: 700 }}
+                      onClick={() => { const pool = statsActivo.filter(p => sel.includes(p.jugador_id)); setTeams(snakeDraft(pool)); setMatchResult(null); }}>
+                      ⚡ Automático
+                    </button>
+                    <button style={{ flex: 1, background: "transparent", border: "2px solid #3b82f6", color: "#60a5fa", borderRadius: "8px", padding: 12, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: 1 }}
+                      onClick={() => setManualMode(true)}>
+                      ✋ Manual
+                    </button>
+                  </div>
                 )}
                 {manualMode && sel.length === 12 && (
                   <div>
+                    <button onClick={() => setManualMode(false)} style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", fontSize: 13, padding: "0 0 10px", display: "block" }}>← Volver</button>
                     <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                       {[["A", "#22c55e", mA, setMA], ["B", "#3b82f6", mB, setMB]].map(([tm, col, list, setList]) => (
                         <div key={tm} style={{ flex: 1, background: "#1e293b", borderRadius: 9, overflow: "hidden" }}>
