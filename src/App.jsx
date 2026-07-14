@@ -25,7 +25,7 @@ function calcStats(part, partidos) {
   let cW = 0, cL = 0, mW = 0, mL = 0;
   const recent = [];
   const myMatches = partidos
-    .filter(m => m.equipo_a.includes(part.jugador_id) || m.equipo_b.includes(part.jugador_id))
+    .filter(m => m.resultado && (m.equipo_a.includes(part.jugador_id) || m.equipo_b.includes(part.jugador_id)))
     .sort((a, b) => a.semana - b.semana);
   myMatches.forEach(m => {
     const inA = m.equipo_a.includes(part.jugador_id);
@@ -42,10 +42,16 @@ function calcStats(part, partidos) {
 }
 
 function snakeDraft(pool) {
-  const s = [...pool].sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : b.eff - a.eff);
+  const ranked = [...pool].sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : b.eff - a.eff);
   const A = [], B = [];
-  s.forEach((p, i) => { (i % 4 < 2 ? A : B).push(p); });
-  return { A, B };
+  const pairs = [];
+  for (let i = 0; i < ranked.length; i += 2) {
+    const hi = ranked[i], lo = ranked[i + 1];
+    const hiToA = Math.random() < 0.5;
+    if (hiToA) { A.push(hi); B.push(lo); } else { A.push(lo); B.push(hi); }
+    pairs.push({ hi, lo, hiTeam: hiToA ? "A" : "B" });
+  }
+  return { A, B, ranked, pairs };
 }
 
 const ST = {
@@ -81,6 +87,38 @@ function KpiCard({ icon, label, val, sub, accent = "#22c55e" }) {
 
 function Empty({ text }) {
   return <div style={{ textAlign: "center", color: "#334155", padding: "48px 0", fontSize: 15 }}>{text}</div>;
+}
+
+function DraftRationale({ teams }) {
+  const sumPts = list => list.reduce((s, p) => s + p.pts, 0);
+  const avgEff = list => list.length ? Math.round(list.reduce((s, p) => s + p.eff, 0) / list.length) : 0;
+  const ptsA = sumPts(teams.A), ptsB = sumPts(teams.B);
+  return (
+    <div>
+      <p style={{ margin: "0 0 8px" }}>
+        Los 12 jugadores se ordenaron por puntos de la temporada (pts) y, en caso de empate, por eficiencia (%).
+        Con el <strong>método serpiente</strong> se armaron 6 parejas de nivel consecutivo (1°-2°, 3°-4°, … 11°-12°)
+        y en cada pareja se sorteó al azar qué equipo se quedaba con cada jugador, para que ambos equipos queden parejos en nivel.
+      </p>
+      <div style={{ marginBottom: 8 }}>
+        {teams.pairs.map((pr, idx) => (
+          <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderBottom: "1px solid #0f172a" }}>
+            <span style={{ color: "#64748b" }}>Pareja {idx + 1} ({pr.hi.pts}pts / {pr.lo.pts}pts)</span>
+            <span>
+              <span style={{ color: pr.hiTeam === "A" ? "#22c55e" : "#3b82f6" }}>{pr.hi.nombre} → {pr.hiTeam}</span>
+              {"  ·  "}
+              <span style={{ color: pr.hiTeam === "A" ? "#3b82f6" : "#22c55e" }}>{pr.lo.nombre} → {pr.hiTeam === "A" ? "B" : "A"}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      <div>
+        Equipo A: <strong>{ptsA} pts</strong> totales · {avgEff(teams.A)}% eficiencia promedio<br />
+        Equipo B: <strong>{ptsB} pts</strong> totales · {avgEff(teams.B)}% eficiencia promedio<br />
+        Diferencia entre equipos: <strong>{Math.abs(ptsA - ptsB)} pts</strong>
+      </div>
+    </div>
+  );
 }
 
 function LoginScreen({ onLogin }) {
@@ -239,30 +277,32 @@ export default function App() {
   }
 
   async function confirmMatch() {
-    if (!matchResult || !teams || !torneoActivo) return;
+    if (!teams || !torneoActivo) return;
     const match = {
       torneo_id: torneoActivo.id,
       semana: torneoActivo.semana_actual,
       fecha: matchDate,
       equipo_a: teams.A.map(p => p.jugador_id),
       equipo_b: teams.B.map(p => p.jugador_id),
-      resultado: matchResult,
+      resultado: matchResult || null,
       contexto: ""
     };
     await supabase.from("partidos").insert(match);
-    const allIds = [...match.equipo_a, ...match.equipo_b];
-    for (const jId of allIds) {
-      const part = participaciones.find(p => p.torneo_id === activoId && p.jugador_id === jId);
-      if (!part) continue;
-      const inA = match.equipo_a.includes(jId);
-      let pg = part.pg, pe = part.pe, pp = part.pp;
-      if (matchResult === "draw") pe++;
-      else if ((matchResult === "A" && inA) || (matchResult === "B" && !inA)) pg++;
-      else pp++;
-      await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
+    if (matchResult) {
+      const allIds = [...match.equipo_a, ...match.equipo_b];
+      for (const jId of allIds) {
+        const part = participaciones.find(p => p.torneo_id === activoId && p.jugador_id === jId);
+        if (!part) continue;
+        const inA = match.equipo_a.includes(jId);
+        let pg = part.pg, pe = part.pe, pp = part.pp;
+        if (matchResult === "draw") pe++;
+        else if ((matchResult === "A" && inA) || (matchResult === "B" && !inA)) pg++;
+        else pp++;
+        await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
+      }
     }
     await supabase.from("torneos").update({ semana_actual: torneoActivo.semana_actual + 1 }).eq("id", activoId);
-    setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); setMatchDate(new Date().toISOString().split("T")[0]); setTab("ranking");
+    setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); setMatchDate(new Date().toISOString().split("T")[0]); setTab(matchResult ? "ranking" : "historial");
     loadAll();
   }
 
@@ -277,7 +317,9 @@ export default function App() {
       if (!part) continue;
       const inA = match.equipo_a.includes(jId);
       let pg = part.pg, pe = part.pe, pp = part.pp;
-      if (oldRes === "draw") pe--; else if ((oldRes === "A" && inA) || (oldRes === "B" && !inA)) pg--; else pp--;
+      if (oldRes) {
+        if (oldRes === "draw") pe--; else if ((oldRes === "A" && inA) || (oldRes === "B" && !inA)) pg--; else pp--;
+      }
       if (newRes === "draw") pe++; else if ((newRes === "A" && inA) || (newRes === "B" && !inA)) pg++; else pp++;
       await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
     }
@@ -288,17 +330,21 @@ export default function App() {
     if (!confirm("¿Eliminar este partido?")) return;
     const match = partidos.find(m => m.id === matchId);
     if (!match) return;
-    const allIds = [...match.equipo_a, ...match.equipo_b];
-    for (const jId of allIds) {
-      const part = participaciones.find(p => p.torneo_id === match.torneo_id && p.jugador_id === jId);
-      if (!part) continue;
-      const inA = match.equipo_a.includes(jId);
-      let pg = part.pg, pe = part.pe, pp = part.pp;
-      if (match.resultado === "draw") pe--; else if ((match.resultado === "A" && inA) || (match.resultado === "B" && !inA)) pg--; else pp--;
-      await supabase.from("participaciones").update({ pg: Math.max(0,pg), pe: Math.max(0,pe), pp: Math.max(0,pp) }).eq("id", part.id);
+    if (match.resultado) {
+      const allIds = [...match.equipo_a, ...match.equipo_b];
+      for (const jId of allIds) {
+        const part = participaciones.find(p => p.torneo_id === match.torneo_id && p.jugador_id === jId);
+        if (!part) continue;
+        const inA = match.equipo_a.includes(jId);
+        let pg = part.pg, pe = part.pe, pp = part.pp;
+        if (match.resultado === "draw") pe--; else if ((match.resultado === "A" && inA) || (match.resultado === "B" && !inA)) pg--; else pp--;
+        await supabase.from("participaciones").update({ pg: Math.max(0,pg), pe: Math.max(0,pe), pp: Math.max(0,pp) }).eq("id", part.id);
+      }
     }
     await supabase.from("partidos").delete().eq("id", matchId);
-    await supabase.from("torneos").update({ semana_actual: Math.max(1, torneoActivo.semana_actual - 1) }).eq("id", activoId);
+    const restantes = partidos.filter(p => p.torneo_id === match.torneo_id && p.id !== matchId);
+    const maxSemana = restantes.reduce((mx, p) => Math.max(mx, p.semana), 0);
+    await supabase.from("torneos").update({ semana_actual: maxSemana + 1 }).eq("id", match.torneo_id);
     loadAll();
   }
 
@@ -579,6 +625,18 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+                {teams.ranked && (
+                  <button style={{ ...ST.btnGhost, width: "100%", marginBottom: 12 }}
+                    onClick={() => { const pool = statsActivo.filter(p => sel.includes(p.jugador_id)); setTeams(snakeDraft(pool)); setMatchResult(null); }}>
+                    🔀 Volver a barajar equipos
+                  </button>
+                )}
+                {teams.ranked && (
+                  <div style={{ ...ST.card, fontSize: 12, color: "#94a3b8", lineHeight: 1.6, marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, letterSpacing: 2, color: "#64748b", marginBottom: 6 }}>🧠 CÓMO SE ARMARON LOS EQUIPOS</div>
+                    <DraftRationale teams={teams} />
+                  </div>
+                )}
                 <div style={ST.card}>
                   <div style={{ fontSize: 10, letterSpacing: 2, color: "#64748b", marginBottom: 10, textAlign: "center" }}>¿QUIÉN GANÓ?</div>
                   <div style={{ display: "flex", gap: 7, marginBottom: 12, flexWrap: "wrap" }}>
@@ -591,8 +649,11 @@ export default function App() {
                   </div>
                   <div style={{ display: "flex", gap: 7 }}>
                     <button style={ST.btnGhost} onClick={() => { setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); }}>← Volver</button>
+                    {!matchResult && <button style={{ flex: 1, background: "transparent", border: "2px solid #3b82f6", color: "#60a5fa", borderRadius: 9, padding: 11, fontSize: 13, fontWeight: 700, cursor: "pointer", letterSpacing: 1 }}
+                      onClick={confirmMatch}>📤 Enviar equipos (sin resultado)</button>}
                     {matchResult && <button style={{ ...ST.btnGreen, flex: 1, padding: 11, fontSize: 13, letterSpacing: 1 }} onClick={confirmMatch}>✅ Confirmar Resultado</button>}
                   </div>
+                  {!matchResult && <div style={{ fontSize: 11, color: "#64748b", marginTop: 8, textAlign: "center" }}>Podés mandar los equipos ahora y cargar el resultado después, desde Historial.</div>}
                 </div>
               </>
             )}
@@ -604,15 +665,16 @@ export default function App() {
             <div style={{ fontSize: 15, fontWeight: 900, letterSpacing: 2, marginBottom: 12 }}>HISTORIAL DE PARTIDOS</div>
             {!partidos.filter(p => p.torneo_id === vistaId).length ? <Empty text="Sin partidos registrados" /> :
               [...partidos.filter(p => p.torneo_id === vistaId)].reverse().map(m => (
-                <div key={m.id} style={{ ...ST.card, padding: 0, overflow: "hidden" }}>
+                <div key={m.id} style={{ ...ST.card, padding: 0, overflow: "hidden", border: m.resultado ? undefined : "1px dashed #f59e0b55" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 13px", borderBottom: "1px solid #0d1523", flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 900, color: "#22c55e", fontSize: 13 }}>Semana {m.semana}</span>
                     <span style={{ color: "#475569", fontSize: 11, flex: 1 }}>{m.fecha}</span>
                     {m.contexto && <span style={{ fontSize: 11, color: "#64748b", fontStyle: "italic" }}>{m.contexto}</span>}
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{m.resultado === "draw" ? "🟡 Empate" : m.resultado === "A" ? "🟢 Ganó A" : "🔵 Ganó B"}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{m.resultado === "draw" ? "🟡 Empate" : m.resultado === "A" ? "🟢 Ganó A" : m.resultado === "B" ? "🔵 Ganó B" : "⏳ Pendiente"}</span>
                     {isAdmin && torneo?.estado === "active" && (
                       <div style={{ display: "flex", gap: 5 }}>
-                        <button style={ST.btnBlue} onClick={() => setModal({ type: "edit-match", id: m.id })}>✏️</button>
+                        {!m.resultado && <button style={{ ...ST.btnGreen, padding: "4px 10px", fontSize: 12 }} onClick={() => setModal({ type: "edit-match", id: m.id })}>📝 Cargar resultado</button>}
+                        {m.resultado && <button style={ST.btnBlue} onClick={() => setModal({ type: "edit-match", id: m.id })}>✏️</button>}
                         <button style={ST.btnDanger} onClick={() => deleteMatch(m.id)}>🗑️</button>
                       </div>
                     )}
@@ -716,7 +778,7 @@ export default function App() {
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99, padding: 20 }}>
             <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 14, padding: 22, width: "100%", maxWidth: 380 }}>
-              <div style={{ fontWeight: 900, fontSize: 14, marginBottom: 4 }}>✏️ Corregir Resultado</div>
+              <div style={{ fontWeight: 900, fontSize: 14, marginBottom: 4 }}>{m.resultado ? "✏️ Corregir Resultado" : "📝 Cargar Resultado"}</div>
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>Semana {m.semana} · {m.fecha}</div>
               {[["A", "🟢 Ganó Equipo A", "#16a34a"], ["draw", "🟡 Empate", "#ca8a04"], ["B", "🔵 Ganó Equipo B", "#1d4ed8"]].map(([v, l, col]) => (
                 <button key={v} onClick={() => fixMatch(m.id, v)}
