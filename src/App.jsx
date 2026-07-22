@@ -18,10 +18,7 @@ function ranked(stats) {
 }
 
 function calcStats(part, partidos) {
-  const pts = part.pg * 3 + part.pe;
-  const pj = part.pg + part.pe + part.pp;
-  const eff = pj ? Math.round((pts / (pj * 3)) * 100) : 0;
-  const wr = pj ? Math.round((part.pg / pj) * 100) : 0;
+  let pg = 0, pe = 0, pp = 0;
   let cW = 0, cL = 0, mW = 0, mL = 0;
   const recent = [];
   const myMatches = partidos
@@ -30,15 +27,19 @@ function calcStats(part, partidos) {
   myMatches.forEach(m => {
     const inA = m.equipo_a.includes(part.jugador_id);
     let r;
-    if (m.resultado === "draw") r = "E";
-    else if ((m.resultado === "A" && inA) || (m.resultado === "B" && !inA)) r = "V";
-    else r = "D";
+    if (m.resultado === "draw") { r = "E"; pe++; }
+    else if ((m.resultado === "A" && inA) || (m.resultado === "B" && !inA)) { r = "V"; pg++; }
+    else { r = "D"; pp++; }
     if (r === "V") { cW++; cL = 0; mW = Math.max(mW, cW); }
     else if (r === "D") { cL++; cW = 0; mL = Math.max(mL, cL); }
     else { cW = 0; cL = 0; }
     recent.push(r);
   });
-  return { ...part, pts, pj, eff, wr, maxWin: mW, maxLoss: mL, curWin: cW, curLoss: cL, recent: recent.slice(-5) };
+  const pj = pg + pe + pp;
+  const pts = pg * 3 + pe;
+  const eff = pj ? Math.round((pts / (pj * 3)) * 100) : 0;
+  const wr = pj ? Math.round((pg / pj) * 100) : 0;
+  return { ...part, pg, pe, pp, pts, pj, eff, wr, maxWin: mW, maxLoss: mL, curWin: cW, curLoss: cL, recent: recent.slice(-5) };
 }
 
 function snakeDraft(pool) {
@@ -288,19 +289,6 @@ export default function App() {
       contexto: ""
     };
     await supabase.from("partidos").insert(match);
-    if (matchResult) {
-      const allIds = [...match.equipo_a, ...match.equipo_b];
-      for (const jId of allIds) {
-        const part = participaciones.find(p => p.torneo_id === activoId && p.jugador_id === jId);
-        if (!part) continue;
-        const inA = match.equipo_a.includes(jId);
-        let pg = part.pg, pe = part.pe, pp = part.pp;
-        if (matchResult === "draw") pe++;
-        else if ((matchResult === "A" && inA) || (matchResult === "B" && !inA)) pg++;
-        else pp++;
-        await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
-      }
-    }
     await supabase.from("torneos").update({ semana_actual: torneoActivo.semana_actual + 1 }).eq("id", activoId);
     setTeams(null); setSel([]); setMatchResult(null); setMA([]); setMB([]); setMatchDate(new Date().toISOString().split("T")[0]); setTab(matchResult ? "ranking" : "historial");
     loadAll();
@@ -309,20 +297,7 @@ export default function App() {
   async function fixMatch(matchId, newRes) {
     const match = partidos.find(m => m.id === matchId);
     if (!match) return;
-    const oldRes = match.resultado;
     await supabase.from("partidos").update({ resultado: newRes }).eq("id", matchId);
-    const allIds = [...match.equipo_a, ...match.equipo_b];
-    for (const jId of allIds) {
-      const part = participaciones.find(p => p.torneo_id === match.torneo_id && p.jugador_id === jId);
-      if (!part) continue;
-      const inA = match.equipo_a.includes(jId);
-      let pg = part.pg, pe = part.pe, pp = part.pp;
-      if (oldRes) {
-        if (oldRes === "draw") pe--; else if ((oldRes === "A" && inA) || (oldRes === "B" && !inA)) pg--; else pp--;
-      }
-      if (newRes === "draw") pe++; else if ((newRes === "A" && inA) || (newRes === "B" && !inA)) pg++; else pp++;
-      await supabase.from("participaciones").update({ pg, pe, pp }).eq("id", part.id);
-    }
     setModal(null); loadAll();
   }
 
@@ -330,17 +305,6 @@ export default function App() {
     if (!confirm("¿Eliminar este partido?")) return;
     const match = partidos.find(m => m.id === matchId);
     if (!match) return;
-    if (match.resultado) {
-      const allIds = [...match.equipo_a, ...match.equipo_b];
-      for (const jId of allIds) {
-        const part = participaciones.find(p => p.torneo_id === match.torneo_id && p.jugador_id === jId);
-        if (!part) continue;
-        const inA = match.equipo_a.includes(jId);
-        let pg = part.pg, pe = part.pe, pp = part.pp;
-        if (match.resultado === "draw") pe--; else if ((match.resultado === "A" && inA) || (match.resultado === "B" && !inA)) pg--; else pp--;
-        await supabase.from("participaciones").update({ pg: Math.max(0,pg), pe: Math.max(0,pe), pp: Math.max(0,pp) }).eq("id", part.id);
-      }
-    }
     await supabase.from("partidos").delete().eq("id", matchId);
     const restantes = partidos.filter(p => p.torneo_id === match.torneo_id && p.id !== matchId);
     const maxSemana = restantes.reduce((mx, p) => Math.max(mx, p.semana), 0);
@@ -510,14 +474,14 @@ export default function App() {
                         const map = {};
                         torneos.forEach(t => {
                           const parts = participaciones.filter(p => p.torneo_id === t.id);
-                          parts.forEach(p => {
+                          const pars = partidos.filter(m => m.torneo_id === t.id);
+                          parts.forEach(part => {
+                            const p = calcStats(part, pars);
                             const nombre = jugadores.find(j => j.id === p.jugador_id)?.nombre || "?";
                             if (!map[nombre]) map[nombre] = { nombre, pts: 0, pj: 0, pg: 0, pe: 0, pp: 0, count: 0 };
-                            const pts = p.pg * 3 + p.pe;
-                            const pj = p.pg + p.pe + p.pp;
-                            map[nombre].pts += pts; map[nombre].pj += pj;
+                            map[nombre].pts += p.pts; map[nombre].pj += p.pj;
                             map[nombre].pg += p.pg; map[nombre].pe += p.pe; map[nombre].pp += p.pp;
-                            if (pj > 0) map[nombre].count++;
+                            if (p.pj > 0) map[nombre].count++;
                           });
                         });
                         return Object.values(map).sort((a, b) => b.pts - a.pts).map((p, i) => {
@@ -714,7 +678,8 @@ export default function App() {
               </div>
             )}
             {torneos.map(t => {
-              const tStats = participaciones.filter(p => p.torneo_id === t.id).map(p => ({ ...p, pts: p.pg * 3 + p.pe, pj: p.pg + p.pe + p.pp }));
+              const tPars = partidos.filter(m => m.torneo_id === t.id);
+              const tStats = participaciones.filter(p => p.torneo_id === t.id).map(p => calcStats(p, tPars));
               const lider = [...tStats].sort((a, b) => b.pts - a.pts)[0];
               const liderNombre = lider ? jugadores.find(j => j.id === lider.jugador_id)?.nombre : null;
               const isVista = vistaId === t.id;
@@ -794,7 +759,8 @@ export default function App() {
 
       {modal?.type === "close-t" && (() => {
         const t = torneos.find(x => x.id === modal.id);
-        const tStats = participaciones.filter(p => p.torneo_id === t?.id).map(p => ({ ...p, pts: p.pg * 3 + p.pe, pj: p.pg + p.pe + p.pp })).sort((a, b) => b.pts - a.pts);
+        const tPars = partidos.filter(m => m.torneo_id === t?.id);
+        const tStats = participaciones.filter(p => p.torneo_id === t?.id).map(p => calcStats(p, tPars)).sort((a, b) => b.pts - a.pts);
         const winner = tStats.find(p => p.pj > 0);
         const winnerNombre = winner ? jugadores.find(j => j.id === winner.jugador_id)?.nombre : null;
         return (
