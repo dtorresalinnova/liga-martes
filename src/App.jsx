@@ -204,21 +204,26 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const [dashFilter, setDashFilter] = useState("current");
   const [matchDate, setMatchDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [reglas, setReglas] = useState(null);
+  const [reglasDraft, setReglasDraft] = useState("");
+  const [editingReglas, setEditingReglas] = useState(false);
 
   useEffect(() => { if (role) loadAll(); }, [role]);
 
   async function loadAll() {
     setLoading(true);
-    const [{ data: t }, { data: j }, { data: p }, { data: pa }] = await Promise.all([
+    const [{ data: t }, { data: j }, { data: p }, { data: pa }, { data: r }] = await Promise.all([
       supabase.from("torneos").select("*").order("id"),
       supabase.from("jugadores").select("*").order("nombre"),
       supabase.from("participaciones").select("*"),
       supabase.from("partidos").select("*").order("semana"),
+      supabase.from("reglas").select("*").order("id").limit(1),
     ]);
     setTorneos(t || []);
     setJugadores(j || []);
     setParticipaciones(p || []);
     setPartidos(pa || []);
+    setReglas((r || [])[0] || null);
     const activo = (t || []).find(x => x.estado === "active");
     setActivoId(activo?.id || null);
     setVistaId(activo?.id || (t || [])[0]?.id || null);
@@ -332,10 +337,20 @@ export default function App() {
     setModal(null); loadAll();
   }
 
+  async function saveReglas() {
+    if (reglas) {
+      await supabase.from("reglas").update({ contenido: reglasDraft, actualizado_en: new Date().toISOString() }).eq("id", reglas.id);
+    } else {
+      await supabase.from("reglas").insert({ contenido: reglasDraft });
+    }
+    setEditingReglas(false);
+    loadAll();
+  }
+
   const isAdmin = role === "admin";
   const TABS = isAdmin
-    ? [{ k: "ranking", l: "🏆 Ranking" }, { k: "dashboard", l: "📊 Dashboard" }, { k: "partido", l: "⚽ Partido" }, { k: "historial", l: "📅 Historial" }, { k: "torneos", l: "🏅 Torneos" }, { k: "jugadores", l: "👤 Jugadores" }]
-    : [{ k: "ranking", l: "🏆 Ranking" }, { k: "dashboard", l: "📊 Dashboard" }, { k: "historial", l: "📅 Historial" }, { k: "torneos", l: "🏅 Torneos" }];
+    ? [{ k: "ranking", l: "🏆 Ranking" }, { k: "dashboard", l: "📊 Dashboard" }, { k: "partido", l: "⚽ Partido" }, { k: "historial", l: "📅 Historial" }, { k: "torneos", l: "🏅 Torneos" }, { k: "jugadores", l: "👤 Jugadores" }, { k: "reglas", l: "📜 Reglas y Premios" }]
+    : [{ k: "ranking", l: "🏆 Ranking" }, { k: "dashboard", l: "📊 Dashboard" }, { k: "historial", l: "📅 Historial" }, { k: "torneos", l: "🏅 Torneos" }, { k: "reglas", l: "📜 Reglas y Premios" }];
 
   if (!role) return <LoginScreen onLogin={r => { setRole(r); setTab("ranking"); }} />;
   if (loading) return <div style={{ ...ST.root, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "#22c55e" }}>⚽ Cargando Liga Martes...</div>;
@@ -732,6 +747,37 @@ export default function App() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {tab === "reglas" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: 15, fontWeight: 900, letterSpacing: 2 }}>REGLAS Y PREMIOS</div>
+              {isAdmin && !editingReglas && (
+                <button style={ST.btnGreen} onClick={() => { setReglasDraft(reglas?.contenido || ""); setEditingReglas(true); }}>✏️ Editar</button>
+              )}
+            </div>
+            {isAdmin && editingReglas ? (
+              <div style={ST.card}>
+                <textarea
+                  style={{ ...ST.field, minHeight: 320, fontFamily: "inherit", lineHeight: 1.6, resize: "vertical" }}
+                  value={reglasDraft}
+                  onChange={e => setReglasDraft(e.target.value)}
+                  placeholder="Escribí acá las reglas del torneo, sistema de puntos, premios, etc."
+                />
+                <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
+                  <button style={ST.btnGhost} onClick={() => setEditingReglas(false)}>Cancelar</button>
+                  <button style={ST.btnGreen} onClick={saveReglas}>Guardar</button>
+                </div>
+              </div>
+            ) : !reglas?.contenido?.trim() ? (
+              <Empty text={isAdmin ? "Todavía no escribiste las reglas. Tocá ✏️ Editar." : "El admin todavía no publicó las reglas."} />
+            ) : (
+              <div style={{ ...ST.card, whiteSpace: "pre-wrap", lineHeight: 1.7, fontSize: 14, color: "#e2e8f0" }}>
+                {reglas.contenido}
+              </div>
+            )}
           </div>
         )}
 
